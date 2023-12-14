@@ -38,13 +38,16 @@ OctoWS2811 leds(ledsPerStrip, displayMemory, drawingMemory, octoConfig);
 #define HALL_SENSOR_DEBOUNCE_TIME_MICROS 2000
 #define INVALID_HALL_SENSOR_VALUE -1
 elapsedMicros hsSinceAboveThreshold;
+elapsedMicros hsSinceMaxValue;
 elapsedMicros hsSincePeak;
 elapsedMicros hsDebounceTimeElapsed;
+unsigned long hsLastPeakTime = 0;
+
 int hsCurrMaxValue = INVALID_HALL_SENSOR_VALUE;
 
-// TODO: Have a exponential moving average of the time between peaks,
-// which is used to determine the speed of the motor
-//unsigned long avgRotationTimeMicros = 0;
+// POV variables
+#define MAX_ROTATION_TIME_MICROS 1000000 // 1 second
+unsigned long totalRotationTime = 0; // Total time (microsecs) for one rotation
 
 
 void setup() {
@@ -62,24 +65,65 @@ void loop() {
 
     if (hallSensorValue > HALL_SENSOR_THRESHOLD) {
       if (hallSensorValue > hsCurrMaxValue) {
+          if (hsCurrMaxValue == INVALID_HALL_SENSOR_VALUE) {
+            hsSinceAboveThreshold = elapsedMicros();
+          }
           hsCurrMaxValue = hallSensorValue;
-          hsSinceAboveThreshold = elapsedMicros();
-        }
+          hsSinceMaxValue = elapsedMicros();
+      }
     }
     else {
       // Check whether the hall sensor was above the threshold previously
       if (hsCurrMaxValue != INVALID_HALL_SENSOR_VALUE) {
-        // Calculate the time the hall sensor was above the threshold
-        auto hsAboveThresholdTime = static_cast<unsigned long>(hsSinceAboveThreshold);
+        
+        // Before we start estimating the total rotation time we need to make sure
+        // that we've rotated at least once!
+        if (hsLastPeakTime != 0) {
+          if (totalRotationTime == 0) {
+            // If this is the first time we're calculating the rotation time then
+            // we can use the time since the last peak as the total rotation time
+            totalRotationTime = static_cast<unsigned long>(hsSincePeak);
+          }
+          else {
+            // Otherwise we use a weighted average of the time since the last peak
+            // and the total rotation time to estimate the total rotation time
+            totalRotationTime = static_cast<unsigned long>(
+              0.9 * static_cast<double>(hsSincePeak) + 
+              0.1 * static_cast<double>(totalRotationTime)
+            );
+          }
 
-        DEBUG_SERIAL.print("Hall sensor last peak: ");
-        DEBUG_SERIAL.println(hsSincePeak);
+          // If the total rotation time is too long then we can't use it, reinitialize it:
+          // Conservatively, we should be rotating at least once per second.
+          if (totalRotationTime > MAX_ROTATION_TIME_MICROS) {
+            totalRotationTime = 0;
+          }
+        }
+
+        // Calculate the total time (microsecs) the hall sensor was above the threshold
+        auto hsAboveThresholdTime = static_cast<unsigned long>(hsSinceAboveThreshold);
+        // Calculate the time (microsecs) since the hall sensor was at its max value
+        auto hsMaxValueTime = static_cast<unsigned long>(hsSinceMaxValue);
+
+        // Use a weighted average of half the time the sensor was above the threshold and
+        // the time since the sensor was at its max value to estimate the time since the
+        // sensor was at its peak value
+        hsLastPeakTime = static_cast<unsigned long>(
+          0.25 * static_cast<double>(hsAboveThresholdTime / 2) + 
+          0.75 * static_cast<double>(hsMaxValueTime)
+        );
+
+        //DEBUG_SERIAL.print("Hall sensor last peak: ");
+        //DEBUG_SERIAL.println(hsSincePeak);
 
         // We can figure out the time that the hall sensor was at its peak value 
         // by taking the midpoint of the time range that it was at its max value
-        hsSincePeak = elapsedMicros(hsAboveThresholdTime / 2);
+        hsSincePeak = elapsedMicros(hsLastPeakTime);
         DEBUG_SERIAL.print("Hall sensor above threshold for ");
         DEBUG_SERIAL.print(hsAboveThresholdTime);
+        DEBUG_SERIAL.println(" microseconds");
+        DEBUG_SERIAL.print("Hall sensor time since max value: ");
+        DEBUG_SERIAL.print(hsMaxValueTime);
         DEBUG_SERIAL.println(" microseconds");
 
         hsDebounceTimeElapsed = elapsedMicros();
@@ -88,4 +132,27 @@ void loop() {
       hsCurrMaxValue = INVALID_HALL_SENSOR_VALUE;
     }
   }
+
+  // If there's a rotation time established then we can start rendering based on 
+  // the time since the last peak and the expected rotation time
+  bool isRotationDataValid = false;
+  if (hsLastPeakTime != 0) {
+    auto timeSinceLastPeak = static_cast<unsigned long>(hsSincePeak);
+    if (totalRotationTime > 0 && 
+        totalRotationTime <= MAX_ROTATION_TIME_MICROS && 
+        timeSinceLastPeak <= MAX_ROTATION_TIME_MICROS) {
+
+      DEBUG_SERIAL.print("Current total rotation time (us): ");
+      DEBUG_SERIAL.println(totalRotationTime);
+      // TODO
+
+      isRotationDataValid = true;
+    }
+  }
+
+  // Clear the LEDs if we don't have proper rotation time data
+  if (!isRotationDataValid) {
+    // TODO
+  }
+
 }
