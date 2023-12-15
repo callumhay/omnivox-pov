@@ -10,6 +10,8 @@
             "includePath": [
                 "/Users/beowulf/projects/omnivox-pov/embedded/include",
                 "/Users/beowulf/projects/omnivox-pov/embedded/src",
+                "/Users/beowulf/projects/omnivox-pov/embedded/.pio/libdeps/teensy40/PacketSerial/src",
+                "/Users/beowulf/projects/omnivox-pov/embedded/.pio/libdeps/teensy40/OctoWS2811",
                 "/Users/beowulf/.platformio/packages/framework-arduinoteensy/cores/teensy4",
                 "/Users/beowulf/.platformio/packages/framework-arduinoteensy/libraries/ADC",
                 "/Users/beowulf/.platformio/packages/framework-arduinoteensy/libraries/AccelStepper/src",
@@ -117,6 +119,8 @@
                 "path": [
                     "/Users/beowulf/projects/omnivox-pov/embedded/include",
                     "/Users/beowulf/projects/omnivox-pov/embedded/src",
+                    "/Users/beowulf/projects/omnivox-pov/embedded/.pio/libdeps/teensy40/PacketSerial/src",
+                    "/Users/beowulf/projects/omnivox-pov/embedded/.pio/libdeps/teensy40/OctoWS2811",
                     "/Users/beowulf/.platformio/packages/framework-arduinoteensy/cores/teensy4",
                     "/Users/beowulf/.platformio/packages/framework-arduinoteensy/libraries/ADC",
                     "/Users/beowulf/.platformio/packages/framework-arduinoteensy/libraries/AccelStepper/src",
