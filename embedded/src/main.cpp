@@ -1,5 +1,7 @@
-#include <OctoWS2811.h>
 #include <algorithm>
+
+#include <OctoWS2811.h>
+
 
 // Comm/Serial constants
 #define RX_PIN 0
