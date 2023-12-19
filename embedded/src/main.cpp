@@ -30,6 +30,9 @@
 typedef PacketSerial_<COBS, 0, PACKET_BUFFER_MAX_SIZE> OmnivoxPoVPacketSerial;
 OmnivoxPoVPacketSerial packetSerial;
 
+int lastKnownIncomingFrameId = -1;
+int outgoingFrameId = 0;
+
 // Packet Header/Identifier Constants ***************************************************
 #define MY_SLAVE_ID 1
 #define EMPTY_SLAVE_ID 255
@@ -54,31 +57,30 @@ int drawingMemory[MEM_BUFF_LEN] = {0};
 OctoWS2811 leds(LEDS_PER_STRIP, displayMemory, drawingMemory, OCTO_CONFIG);
 
 
-// Hall Sensor Monitoring Constants/Variables *******************************************
-#define HALL_SENSOR_THRESHOLD 1000
+// Hall Sensor Monitoring and POV Constants/Variables **********************************
+
 // NOTE: We assume that the typical rotation speed will be somewhere 
-// between 5 and 30 rotations per second, anything outside that range will
+// between 4 and 30 rotations per second, anything outside that range will
 // require tuning of these constants
+
+// Minimum allowable time for a single rotation of a PoV
+#define MIN_ROTATION_TIME_MICROS 2800 // (~1/35 second)
+// Maximum allowable time for a single rotation of a PoV
+#define MAX_ROTATION_TIME_MICROS 250000 // (~1/4 second)
+// The number of microseconds to wait before we allow new peaks to be detected after a peak
 #define HALL_SENSOR_DEBOUNCE_TIME_MICROS 2500 // ~1/40th of a second
+// Hall sensor threshold value (anything above this is considered worthy of recording as a peak)
+#define HALL_SENSOR_THRESHOLD 800
 #define INVALID_HALL_SENSOR_VALUE -1
+
 elapsedMicros hsSinceMaxValue;
 elapsedMicros hsSincePeak;
 elapsedMicros hsDebounceTimeElapsed;
 unsigned long hsLastPeakTime = 0;
 int hsCurrMaxValue = INVALID_HALL_SENSOR_VALUE;
-int numMaxValues = 0;
 
-// POV Control Constants/Variables *******************************************************
-// Minimum allowable time for a single rotation of a PoV
-#define MIN_ROTATION_TIME_MICROS 2800 // (~1/35 second)
-// Maximum allowable time for a single rotation of a PoV
-#define MAX_ROTATION_TIME_MICROS 250000 // (~1/4 second)
 // Current, tracked total rotation time (microseconds) for the PoV
 unsigned long totalRotationTime = 0;
-
-
-int lastKnownIncomingFrameId = -1;
-int outgoingFrameId = 0;
 
 
 bool isRotationTimeValid(unsigned long rotationTime) {
@@ -88,7 +90,7 @@ bool isRotationTimeValid(unsigned long rotationTime) {
 // Send a message to the server to update it on the current rotation time and any other relevant info
 void sendServerUpdateInfo(unsigned long rotationTime) {
   // NOTE: The max unsigned long value is 4294967295 (10 characters)
-  #define MAX_TEMP_BUFFER_SIZE 32
+  #define MAX_TEMP_BUFFER_SIZE 32 // Overkill, but better safe than sorry
   char tempBuffer[MAX_TEMP_BUFFER_SIZE];
   snprintf(tempBuffer, MAX_TEMP_BUFFER_SIZE, "%c %d %d %lu\n", SERVER_DATA_HEADER, MY_SLAVE_ID, outgoingFrameId++, rotationTime); 
   packetSerial.send((const uint8_t*)tempBuffer, sizeof(tempBuffer));
@@ -180,25 +182,24 @@ void loop() {
   // The sensor is a linear hall effect sensor, the non-activated value is around 700-800
   // in the presence of the proper magnetic field the value will increase to around 900-1023
   int hallSensorValue = analogRead(HALL_SENSOR_ANALOG_PIN);
-  //DEBUG_SERIAL.print("Hall sensor value: ");
-  //DEBUG_SERIAL.println(hallSensorValue);
+  /*
+  if (temp_count % 10 == 0) {
+    //DEBUG_SERIAL.print("Hall sensor value: ");
+    DEBUG_SERIAL.println(hallSensorValue);
+  }
+  temp_count++;
+  return;
+  */
   
   // Use a debounce time to avoid significant fluctuations in our estimation of the time between peaks
 
   if (hallSensorValue >= HALL_SENSOR_THRESHOLD && hsDebounceTimeElapsed >= HALL_SENSOR_DEBOUNCE_TIME_MICROS) {
     //DEBUG_SERIAL.println("Hall sensor above threshold");
-    if (hallSensorValue > hsCurrMaxValue) {
-        hsCurrMaxValue = hallSensorValue;
-        hsSinceMaxValue = elapsedMicros();
-        numMaxValues = 1;
+    if (hsCurrMaxValue == INVALID_HALL_SENSOR_VALUE) {
+      hsSinceMaxValue = elapsedMicros();
     }
-    else if (hallSensorValue == hsCurrMaxValue && numMaxValues > 0) {
-      double numMaxValuesPlus1 = static_cast<double>(numMaxValues + 1);
-      double timeSinceLastMax = static_cast<double>(static_cast<unsigned long>(hsSinceMaxValue));
-      hsSinceMaxValue = elapsedMicros(
-        timeSinceLastMax * (static_cast<double>(numMaxValues) / numMaxValuesPlus1)
-      );
-      numMaxValues++;
+    if (hallSensorValue > hsCurrMaxValue) {
+      hsCurrMaxValue = hallSensorValue;
     }
   }
   else {
@@ -226,6 +227,8 @@ void loop() {
             DEBUG_SERIAL.println(hsSincePeak);
             DEBUG_SERIAL.print("Last peak time (us): ");
             DEBUG_SERIAL.println(hsLastPeakTime);
+            DEBUG_SERIAL.print("Max value: ");
+            DEBUG_SERIAL.println(hsCurrMaxValue);
           }
 
           if (totalRotationTime == 0) {
@@ -233,11 +236,10 @@ void loop() {
             totalRotationTime = actualRotationTime;
           }
           else {
-            // Otherwise, we use a weighted average of the time since the last peak
-            // and the total rotation time to estimate the total rotation time
+            // Otherwise, we use a weighted average to smooth out the rotation time
             totalRotationTime = static_cast<unsigned long>(
-              0.5 * static_cast<double>(actualRotationTime) + 
-              0.5 * static_cast<double>(totalRotationTime)
+              0.75 * static_cast<double>(actualRotationTime) + 
+              0.25 * static_cast<double>(totalRotationTime)
             );
           }
 
@@ -262,7 +264,6 @@ void loop() {
     }
 
     hsCurrMaxValue = INVALID_HALL_SENSOR_VALUE;
-    numMaxValues = 0;
   }
 
   // If there's a rotation time established then we can start rendering based on 
