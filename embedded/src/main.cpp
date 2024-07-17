@@ -59,7 +59,7 @@ OctoWS2811 leds(LEDS_PER_STRIP, displayMemory, drawingMemory, OCTO_CONFIG);
 
 // Hall Sensor Monitoring and POV Constants/Variables **********************************
 
-// NOTE: We assume that the typical rotation speed will be somewhere 
+// NOTE: We assume that the typical rotation speed will be somewhere
 // between 4 and 30 rotations per second, anything outside that range will
 // require tuning of these constants
 
@@ -73,7 +73,7 @@ OctoWS2811 leds(LEDS_PER_STRIP, displayMemory, drawingMemory, OCTO_CONFIG);
 #define HALL_SENSOR_THRESHOLD 800
 #define INVALID_HALL_SENSOR_VALUE -1
 
-elapsedMicros hsSinceMaxValue;
+elapsedMicros hsTimeSinceActivated;
 elapsedMicros hsSincePeak;
 elapsedMicros hsDebounceTimeElapsed;
 unsigned long hsLastPeakTime = 0;
@@ -92,7 +92,7 @@ void sendServerUpdateInfo(unsigned long rotationTime) {
   // NOTE: The max unsigned long value is 4294967295 (10 characters)
   #define MAX_TEMP_BUFFER_SIZE 32 // Overkill, but better safe than sorry
   char tempBuffer[MAX_TEMP_BUFFER_SIZE];
-  snprintf(tempBuffer, MAX_TEMP_BUFFER_SIZE, "%c %d %d %lu\n", SERVER_DATA_HEADER, MY_SLAVE_ID, outgoingFrameId++, rotationTime); 
+  snprintf(tempBuffer, MAX_TEMP_BUFFER_SIZE, "%c %d %d %lu\n", SERVER_DATA_HEADER, MY_SLAVE_ID, outgoingFrameId++, rotationTime);
   packetSerial.send((const uint8_t*)tempBuffer, sizeof(tempBuffer));
 }
 
@@ -113,19 +113,18 @@ void readFullVoxelData(const uint8_t* buffer, size_t size, size_t startIdx, int 
   // Debug/Info status update
   statusUpdateFrameCounter++;
   if (statusUpdateFrameCounter % STATUS_UPDATE_FRAMES == 0) {
-     DEBUG_SERIAL.printf("[Slave %i] LED Refresh FPS: %.2f, Frame#: %i", MY_SLAVE_ID, (1000000.0f/((float)frameDiffMicroSecs)), lastKnownFrameId); 
+     DEBUG_SERIAL.printf("[Slave %i] LED Refresh FPS: %.2f, Frame#: %i", MY_SLAVE_ID, (1000000.0f/((float)frameDiffMicroSecs)), lastKnownFrameId);
      DEBUG_SERIAL.println();
      statusUpdateFrameCounter = 0;
   }
   */
 }
 
-
 void onSerialPacketReceived(const void* sender, const uint8_t* buffer, size_t size) {
   if (sender == &packetSerial && size > 2) {
-    
+
     // The first byte of the buffer has the ID of the slave that it's relevant to
-    int bufferIdx = 0; 
+    int bufferIdx = 0;
     uint8_t slaveId = buffer[bufferIdx++];
     if (slaveId != MY_SLAVE_ID && slaveId != EMPTY_SLAVE_ID) {
       // Ignore
@@ -190,13 +189,11 @@ void loop() {
   temp_count++;
   return;
   */
-  
-  // Use a debounce time to avoid significant fluctuations in our estimation of the time between peaks
 
+  // Use a debounce time to avoid significant fluctuations in our estimation of the time between peaks
   if (hallSensorValue >= HALL_SENSOR_THRESHOLD && hsDebounceTimeElapsed >= HALL_SENSOR_DEBOUNCE_TIME_MICROS) {
-    //DEBUG_SERIAL.println("Hall sensor above threshold");
     if (hsCurrMaxValue == INVALID_HALL_SENSOR_VALUE) {
-      hsSinceMaxValue = elapsedMicros();
+      hsTimeSinceActivated = elapsedMicros();
     }
     if (hallSensorValue > hsCurrMaxValue) {
       hsCurrMaxValue = hallSensorValue;
@@ -208,7 +205,7 @@ void loop() {
       bool haveRotatedOnce = hsLastPeakTime != 0;
 
       // Calculate the time (microsecs) since the hall sensor was at its maximum value
-      hsLastPeakTime = static_cast<unsigned long>(hsSinceMaxValue);
+      hsLastPeakTime = static_cast<unsigned long>(hsTimeSinceActivated);
 
       // We need to rotate at least once before we start estimating the total rotation time
       if (haveRotatedOnce) {
@@ -227,7 +224,7 @@ void loop() {
             DEBUG_SERIAL.println(hsSincePeak);
             DEBUG_SERIAL.print("Last peak time (us): ");
             DEBUG_SERIAL.println(hsLastPeakTime);
-            DEBUG_SERIAL.print("Max value: ");
+            DEBUG_SERIAL.print("Last activated hall sensor value: ");
             DEBUG_SERIAL.println(hsCurrMaxValue);
           }
 
@@ -238,7 +235,7 @@ void loop() {
           else {
             // Otherwise, we use a weighted average to smooth out the rotation time
             totalRotationTime = static_cast<unsigned long>(
-              0.75 * static_cast<double>(actualRotationTime) + 
+              0.75 * static_cast<double>(actualRotationTime) +
               0.25 * static_cast<double>(totalRotationTime)
             );
           }
@@ -259,14 +256,14 @@ void loop() {
         }
       }
 
-      hsSincePeak = hsSinceMaxValue;
+      hsSincePeak = hsTimeSinceActivated;
       hsDebounceTimeElapsed = elapsedMicros();
     }
 
     hsCurrMaxValue = INVALID_HALL_SENSOR_VALUE;
   }
 
-  // If there's a rotation time established then we can start rendering based on 
+  // If there's a rotation time established then we can start rendering based on
   // the time since the last peak and the expected rotation time
   bool isRotationDataValid = false;
   if (hsLastPeakTime != 0) {
@@ -285,6 +282,7 @@ void loop() {
   if (!isRotationDataValid) {
     totalRotationTime = 0;
     // TODO
+
   }
 
 }
